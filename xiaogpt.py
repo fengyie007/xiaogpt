@@ -3,6 +3,7 @@ import argparse
 import asyncio
 import json
 import os
+import logging
 from os import environ as env
 import subprocess
 import time
@@ -31,7 +32,7 @@ HARDWARE_COMMAND_DICT = {
 MI_USER = ""
 MI_PASS = ""
 OPENAI_API_KEY = ""
-KEY_WORD = "帮我"
+KEY_WORD = "请问"
 PROMPT = "请用100字以内回答"
 
 # simulate the response from xiaoai server by type the input.
@@ -163,6 +164,7 @@ class MiGPT:
         if self.cookie:
             # if use cookie do not need init
             return
+        logging.info("self.mina_service.device_list")
         hardware_data = await self.mina_service.device_list()
         for h in hardware_data:
             if h.get("hardware", "") == self.hardware:
@@ -233,18 +235,21 @@ class MiGPT:
 
     async def do_tts(self, value):
         if CLI_INTERACTIVE_MODE:
-           print(f"do_tts, CLI_INTERACTIVE_MODE:{value}")
+           logging.info(f"do_tts, CLI_INTERACTIVE_MODE:{value}")
            await asyncio.sleep(2)
            return
 
         if not self.use_command:
             try:
+                logging.info("self.mina_service")
                 await self.mina_service.text_to_speech(self.device_id, value)
             except:
                 # do nothing is ok
                 pass
         else:
-            subprocess.check_output(["micli", self.tts_command, value])
+            logging.info("subprocess.check_output")
+            output = subprocess.check_output(["micli.py", self.tts_command, value])
+            logging.info(output)
 
     def _normalize(self, message):
         message = message.replace(" ", "--")
@@ -268,7 +273,7 @@ class MiGPT:
         data = await self.chatbot.ask(query)
         choices = data.get("choices")
         if not choices:
-            print("No reply from gpt3")
+            logging.info("No reply from gpt3")
         else:
             message = choices[0].get("text", "")
             message = self._normalize(message)
@@ -295,6 +300,7 @@ class MiGPT:
         return ""
 
     async def get_if_xiaoai_is_playing(self):
+        logging.info("self.mina_service.player_get_status")
         playing_info = await self.mina_service.player_get_status(self.device_id)
         # WTF xiaomi api
         is_playing = (
@@ -307,6 +313,7 @@ class MiGPT:
         is_playing = await self.get_if_xiaoai_is_playing()
         if is_playing:
             # stop it
+            logging.info("self.mina_service.player_pause")
             await self.mina_service.player_pause(self.device_id)
 
     async def run_forever(self):
@@ -315,10 +322,11 @@ class MiGPT:
             await self.init_all_data(session)
             while 1:
                 if self.verbose:
-                    print(
+                    logging.info(
                         f"Now listening xiaoai new message timestamp: {self.last_timestamp}"
                     )
                 try:
+                    logging.info("self.get_latest_ask_from_xiaoai")
                     r = await self.get_latest_ask_from_xiaoai()
                 except Exception:
                     # we try to init all again
@@ -328,48 +336,51 @@ class MiGPT:
                 if not self.mute_xiaoai:
                     await asyncio.sleep(3)
                 else:
-                    await asyncio.sleep(0.3)
-                if self.this_mute_xiaoai:
-                    await self.stop_if_xiaoai_is_playing()
+                    await asyncio.sleep(3)
                 new_timestamp, last_record = self.get_last_timestamp_and_record(r)
                 if new_timestamp > self.last_timestamp:
                     self.last_timestamp = new_timestamp
                     query = last_record.get("query", "")
+                    logging.info(f"query={query}")
                     if query.find(KEY_WORD) != -1:
                         self.this_mute_xiaoai = False
                         # drop 帮我回答
                         query = query.replace(KEY_WORD, "")
                         query = f"{query}，{PROMPT}"
                         # waiting for xiaoai speaker done
-                        if not self.mute_xiaoai:
-                            await asyncio.sleep(8)
-                        await self.do_tts("正在问GPT请耐心等待")
+                        # if self.this_mute_xiaoai:
+                        #     await self.stop_if_xiaoai_is_playing()
+                        # if not self.mute_xiaoai:
+                        #     await asyncio.sleep(8)
+                        await self.do_tts("正在问GPT")
                         try:
-                            print(
+                            logging.info(
                                 "以下是小爱的回答: ",
                                 last_record.get("answers")[0]
                                 .get("tts", {})
                                 .get("text"),
                             )
                         except:
-                            print("小爱没回")
+                            logging.info("小爱没回")
                         message = await self.ask_gpt(query)
                         # tts to xiaoai with ChatGPT answer
-                        print("以下是GPT的回答: " + message)
+                        logging.info("GPT的回答: " + message)
                         await self.do_tts(message)
-                        if self.mute_xiaoai:
-                            while 1:
-                                is_playing = await self.get_if_xiaoai_is_playing()
-                                time.sleep(2)
-                                if not is_playing:
-                                    break
-                            self.this_mute_xiaoai = True
+                        # if self.mute_xiaoai:
+                        #     while 1:
+                        #         is_playing = await self.get_if_xiaoai_is_playing()
+                        #         time.sleep(2)
+                        #         if not is_playing:
+                        #             break
+                        #     self.this_mute_xiaoai = True
                 else:
                     if self.verbose:
-                        print("No new xiao ai record")
+                        logging.info("No new xiao ai record")
 
 
 if __name__ == "__main__":
+    logging.basicConfig(filename='myapp.log', level=logging.INFO)
+    logging.info("error test")
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--hardware",
